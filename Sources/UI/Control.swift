@@ -27,7 +27,80 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **/
 
+private protocol ControlEventCallable {
+  func callAsFunction(sender: Button, event: Control.Event)
+}
+
+private struct ControlEventCallback<Target: AnyObject>: ControlEventCallable {
+  private unowned(safe) let instance: Target
+  private let method: (Target) -> (_: Button, _: Control.Event) -> Void
+
+  public init(binding: @escaping (Target) -> (_: Button, _: Control.Event) -> Void,
+              on: Target) {
+    self.instance = on
+    self.method = binding
+  }
+
+  public init(binding: @escaping (Target) -> (_: Button) -> Void, on: Target) {
+    self.instance = on
+    self.method = { (target: Target) in { (sender: Button, _: Control.Event) in
+        binding(target)(sender)
+      }
+    }
+  }
+
+  public init(binding: @escaping (Target) -> () -> Void, on: Target) {
+    self.instance = on
+    self.method = { (target: Target) in { (_: Button, _: Control.Event) in
+        binding(target)()
+      }
+    }
+  }
+
+  public func callAsFunction(sender: Button, event: Control.Event) {
+    self.method(instance)(sender, event)
+  }
+}
+
 public class Control: View {
+  private var actions: [Control.Event:[ControlEventCallable]] = [:]
+
+  /// Accessing the Control's Targets and Actions
+  public let allControlEvents: Control.Event = Control.Event(rawValue: 0)
+
+  public func addTarget<Target: AnyObject>(_ target: Target,
+                                           action: @escaping (Target) -> () -> Void,
+                                           for controlEvents: Control.Event) {
+    assert(controlEvents.rawValue.nonzeroBitCount == 1,
+           "need to unpack controlEvents")
+    var events = self.actions[controlEvents] ?? []
+    events.append(ControlEventCallback(binding: action, on: target))
+    self.actions[controlEvents] = events
+  }
+
+  public func addTarget<Target: AnyObject>(_ target: Target,
+                                           action: @escaping (Target) -> (_: Button) -> Void,
+                                           for controlEvents: Control.Event) {
+    assert(controlEvents.rawValue.nonzeroBitCount == 1,
+           "need to unpack controlEvents")
+    var events = self.actions[controlEvents] ?? []
+    events.append(ControlEventCallback(binding: action, on: target))
+    self.actions[controlEvents] = events
+  }
+
+  public func addTarget<Target: AnyObject>(_ target: Target,
+                                           action: @escaping (Target) -> (_: Button, _: Control.Event) -> Void,
+                                           for controlEvents: Control.Event) {
+    _ = ControlEventCallback(binding: action, on: target)
+  }
+
+  /// Triggering Actions
+  func sendActions(for controlEvents: Control.Event) {
+    assert(controlEvents.rawValue.nonzeroBitCount == 1,
+           "need to unpack controlEvents")
+    _ = self.actions[controlEvents]?.map { $0(sender: self as! Button,
+                                           event: controlEvents) }
+  }
 }
 
 public extension Control {
